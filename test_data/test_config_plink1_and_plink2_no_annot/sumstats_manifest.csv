@@ -1,0 +1,7 @@
+analysis,file,ref_prefix,ref_suffix,ref_plink_flag
+POP1_Q1,${launchDir}/Input/POP1.quant_PHENO1.sumstats.sim.txt.gz,${launchDir}/Input/genotype_100markers_2chr.chr,,--bfile
+POP1_B1,${launchDir}/Input/POP1.bin_PHENO1.sumstats.sim.txt.gz,${launchDir}/Input/genotype_100markers_2chr.chr,,--pfile
+POP1_Q2,${launchDir}/Input/POP1.quant_PHENO2.sumstats.sim.txt.gz,${launchDir}/Input/genotype_100markers_2chr.chr,,--pfile
+POP1_B2,${launchDir}/Input/POP1.bin_PHENO2.sumstats.sim.txt.gz,${launchDir}/Input/genotype_100markers_2chr.chr,,--bfile
+POP2_Q1,${launchDir}/Input/POP2.quant_PHENO1.sumstats.sim.txt.gz,${launchDir}/Input/genotype_100markers_2chr.chr,,--bfile
+POP2_B1,${launchDir}/Input/POP2.bin_PHENO1.sumstats.sim.txt.gz,${launchDir}/Input/genotype_100markers_2chr.chr,,--pfile
