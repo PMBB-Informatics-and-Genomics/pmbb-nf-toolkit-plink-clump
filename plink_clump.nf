@@ -14,7 +14,7 @@ log.info """\
     Tools
     ==================================================
     Python                  : ${params.my_python}
-    PLINK                   : ${params.my_plink}
+    PLINK                   : ${params.my_plink2}
 
     Chromosomes
     ==================================================
@@ -22,7 +22,7 @@ log.info """\
 
     Inputs
     ==================================================
-    summary stats manifest  : ${params['input_sumstats_manifest_csv']}
+    summary stats manifest  : ${params['input_descriptor_table_filename']}
 
     Parameters
     ==================================================
@@ -44,7 +44,7 @@ workflow {
 
 workflow PLINK_CLUMP_SETUP {
     main:
-        sumstats_lines = new File(params['input_sumstats_manifest_csv']).readLines()
+        sumstats_lines = new File(params['input_descriptor_table_filename']).readLines()
         info_row_lists = []
         sumstats_lines[1..-1].each {
             line ->
@@ -79,7 +79,7 @@ workflow PLINK_CLUMP_SETUP_STITCHED {
         group_pheno_sumstats
     main:
         group_info_lines = new File(params['group_info_manifest_csv']).readLines()
-        
+
         sumstats_group_prefixes = [:]
         sumstats_group_suffixes = [:]
         sumstats_group_plink_flags = [:]
@@ -98,7 +98,7 @@ workflow PLINK_CLUMP_SETUP_STITCHED {
         sumstats_by_chr = group_pheno_sumstats.combine(Channel.fromList(params['chromosome_list']))
         sumstats_by_chr_with_plink_info = sumstats_by_chr.map {
             group, pheno, sumstats_file, chr ->
-            new Tuple("${group}_${pheno}", sumstats_file, 
+            new Tuple("${group}_${pheno}", sumstats_file,
                 sumstats_group_prefixes[group], sumstats_group_suffixes[group], sumstats_group_plink_flags[group],
                 chr
             )
@@ -132,6 +132,7 @@ workflow PLINK_CLUMP {
 
         // Name all the scripts we'll need
         input_cleaning_script = "${moduleDir}/scripts/make_clump_input_by_chr.py"
+        clump_list_script = "${moduleDir}/scripts/make_snplist_from_clumps.py"
         merging_script = "${moduleDir}/scripts/merge_clump_results.py"
         plotting_script = "${moduleDir}/scripts/make_loci_plot.py"
 
@@ -166,10 +167,16 @@ workflow PLINK_CLUMP {
         // (analysis, chr, sumstats_chr, extract_file, plink_flag, plink_set)
         clump_filtered_input = clump_chr_input.join(clump_calls_to_run, by: [0, 1])
         // clump_filtered_input.view()
-        (clump_output, logs) = call_plink_clump(
+        (clump_output, clumps_with_plink_files, logs) = call_plink_clump(
             clump_filtered_input,
             params['clump_options']
         )
+
+        // Compute the LD for the clump lead SNPs
+        // First input tuple is (analysis, chr, clumps, extract_file, plink_flag, plink_set)
+        // Also requires a small script for getting the list of lead SNPs and the clump options
+        // Returns (analysis, chr, ".vcor" file with LD values)
+        ld_files = compute_ld_for_clump_snps(clumps_with_plink_files, clump_list_script, params['clump_options'])
 
         // Group clump results and merge the outputs
         merge_input = clump_output.groupTuple(by: 0)
@@ -182,14 +189,14 @@ workflow PLINK_CLUMP {
         clump_files_collect = analysis_merged_clumps.map { analysis, merge_clumps -> merge_clumps }.collect()
         loci_files_collect = analysis_merged_loci.map { analysis, merge_clumps -> merge_clumps }.collect()
 
-        analysis_sumstats_files_collect = sumstats_chr_plinkset.map { 
-            analysis, chr, sumstats, plink_flag, plink_trio -> new Tuple(analysis, sumstats) 
+        analysis_sumstats_files_collect = sumstats_chr_plinkset.map {
+            analysis, chr, sumstats, plink_flag, plink_trio -> new Tuple(analysis, sumstats)
             }.groupTuple(by: 1)
-        
+
         final_clumps_with_sumstats = analysis_merged_clumps.join(analysis_sumstats_files_collect, by: 0)
         final_loci_with_sumstats = analysis_merged_loci.join(analysis_sumstats_files_collect, by: 0)
 
-        // Collect the actual summary stats input used
+        // // Collect the actual summary stats input used
         analysis_sumstats_files_collect = clump_filtered_input.map {
             analysis, chr, sumstats_file, extract_file, plink_flag, plink_set -> \
             new Tuple(analysis, sumstats_file)
@@ -221,7 +228,11 @@ workflow PLINK_CLUMP {
             // Also make plots using the clump groups
             clump_plots = make_clump_plots_no_annot(final_clumps_with_sumstats, plotting_script)
         }
-}
+    emit:
+        loci_summary_file
+        }
+
+
 
 process make_clump_chr_input {
     publishDir "${launchDir}/Clump/Input/"
@@ -236,7 +247,8 @@ process make_clump_chr_input {
         tuple val(analysis), val(chr), path("${analysis}.${chr}.txt.gz"), path("${analysis}.${chr}.extract.txt"), val(plink_flag), path(plink_set)
         tuple val(analysis), val(chr), path("${analysis}.${chr}.min_p.csv")
     shell:
-    """
+        """
+        # plink flag indicates whether variant file is plink1 (.bim) or plink2 (.pvar)
         ${params.my_python} ${make_clump_input_script} \
             --chr ${chr} \
             --plink-bim ${plink_set[1]} ${plink_flag} \
@@ -248,9 +260,11 @@ process make_clump_chr_input {
             --p-col   ${colnames_map.p_col} \
             --a1-col  ${colnames_map.A1_col} \
             --a2-col  ${colnames_map.A2_col} \
-            --p-thresh ${clump_options_map.clump_p2}
-    """
-// No stub because min p files are required for workflow plan
+            --p1thresh ${clump_options_map.clump_p1} \
+            --p2thresh ${clump_options_map.clump_p2} \
+            --kb-window ${clump_options_map.clump_kb}
+        """
+    // No stub because min p files are required for workflow plan
 }
 
 process parse_analysis_chr_pval {
@@ -341,24 +355,27 @@ process call_plink_clump {
         val clump_options_map
     output:
         tuple val(analysis), val(chr), path("${analysis}.${chr}.clumps"), path(extract_file)
+        tuple val(analysis), val(chr), path("${analysis}.${chr}.clumps"), path(extract_file), val(plink_flag), path(plink_set)
         tuple val(analysis), val(chr), path("${analysis}.${chr}.log")
     shell:
-    """
-        ${params.my_plink} \
+        """
+        # plink flag indicates whether file trio is plink1 (bed) or plink2 (pgen)
+        ${params.my_plink2} \
             ${plink_flag} ${plink_set[0].toString().replace('.bed', '').replace('.pgen', '')} \
             --clump ${sumstats} ${plink_flag == '--pfile' ? '--clump-unphased' : ''} \
             --clump-p1 ${clump_options_map.clump_p1} \
             --clump-p2 ${clump_options_map.clump_p2} \
             --clump-r2 ${clump_options_map.clump_r2} \
             --clump-kb ${clump_options_map.clump_kb} \
+            --memory 13000 \
             --extract range ${extract_file} \
             --out ${analysis}.${chr}
-    """
+        """
     stub:
-    """
+        """
         touch ${analysis}.${chr}.clumps
         touch ${analysis}.${chr}.log
-    """
+        """
 }
 
 process merge_clump_results {
@@ -372,17 +389,17 @@ process merge_clump_results {
         tuple val(analysis), path("${analysis}.clumps.csv")
         tuple val(analysis), path("${analysis}.loci.csv")
     shell:
-    """
+        """
         ${params.my_python} ${merge_script} \
          --clumps ${clump_file_list.join(' ')} \
          --extract-files ${extract_file_list.join(' ')} \
          --analysis ${analysis}
-    """
+        """
     stub:
-    """
+        """
         touch ${analysis}.clumps.csv
         touch ${analysis}.loci.csv
-    """
+        """
 }
 
 process make_lead_snp_biofilter_input {
@@ -394,7 +411,7 @@ process make_lead_snp_biofilter_input {
     output:
         path('clumped_lead_snps_biofilter_input_positions.txt')
     script:
-    """
+        """
         #! ${params.my_python}
         import pandas as pd
 
@@ -414,11 +431,11 @@ process make_lead_snp_biofilter_input {
         # Write output
         print(df)
         df.to_csv('clumped_lead_snps_biofilter_input_positions.txt', index=False, header=False, sep=' ')
-    """
+        """
     stub:
-    """
+        """
         touch clumped_lead_snps_biofilter_input_positions.txt
-    """
+        """
 }
 
 process compile_results_with_annot {
@@ -433,7 +450,7 @@ process compile_results_with_annot {
         path('all_clumps_with_annot.csv')
         path('all_loci_with_annot.csv')
     script:
-    """
+        """
         #! ${params.my_python}
         import pandas as pd
 
@@ -476,7 +493,7 @@ process compile_results_with_annot {
 
         # Write the output
         df.to_csv('all_loci_with_annot.csv')
-    """
+        """
     stub:
         '''
         touch all_clumps_with_annot.csv
@@ -534,6 +551,33 @@ process compile_results_no_annot {
         touch all_clumps.csv
         touch all_loci.csv
         '''
+}
+
+process compute_ld_for_clump_snps {
+    machineType 'n2-standard-4'
+    
+    input:
+        tuple val(analysis), val(chr), path(clumps), path(extract_file), val(plink_flag), path(plink_set)
+        path clump_results_to_snp_list_script
+        val clump_options_map
+    output:
+        tuple val(analysis), val(chr), path("${analysis}.${chr}.vcor")
+    shell:
+        """
+        ${params.my_python} ${clump_results_to_snp_list_script} --clumps ${clumps}
+
+        ${params.my_plink2} --r2-unphased \
+          ${plink_flag} ${plink_set[0].toString().replace('.bed', '').replace('.pgen', '')} \
+          --ld-snp-list clump_lead_snps.txt \
+          --ld-window-kb ${clump_options_map.clump_kb} \
+          --ld-window-r2 ${clump_options_map.clump_r2} \
+          --memory 13000 \
+          --out ${analysis}.${chr}
+        """
+    stub:
+        """
+        touch ${analysis}.${chr}.vcor
+        """
 }
 
 process make_locus_plots_with_annot {
