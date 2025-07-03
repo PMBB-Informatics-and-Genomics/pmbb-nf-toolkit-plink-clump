@@ -228,6 +228,8 @@ workflow PLINK_CLUMP {
             // Also make plots using the clump groups
             clump_plots = make_clump_plots_no_annot(final_clumps_with_sumstats, plotting_script)
         }
+
+        json_params = dump_params_to_json(params)
     emit:
         loci_summary_file
         }
@@ -671,3 +673,19 @@ process make_clump_plots_no_annot {
         touch ${analysis}.clumps.png
         """
 }
+
+import groovy.json.JsonBuilder
+process dump_params_to_json {
+    publishDir "${launchDir}/Summary", mode: 'copy'
+    machineType 'n2-standard-2'
+
+    input:
+        val params_dict
+    output:
+        path('plink_clump_params.json')
+    shell:
+        """
+        echo '${new JsonBuilder(params_dict).toPrettyString().replace(';', '|')}' > plink_clump_params.json
+        """
+}
+
