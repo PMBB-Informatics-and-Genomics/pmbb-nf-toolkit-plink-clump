@@ -238,7 +238,6 @@ workflow PLINK_CLUMP {
 
 process make_clump_chr_input {
     publishDir "${launchDir}/Clump/Input/"
-    machineType 'n2-standard-4'
 
     input:
         tuple val(analysis), val(chr), path(sumstats), val(plink_flag), path(plink_set)
@@ -270,7 +269,6 @@ process make_clump_chr_input {
 }
 
 process parse_analysis_chr_pval {
-    machineType 'n2-standard-4'
 
     input:
         tuple val(analysis), val(chr), path(min_p_file) // this is the appropriate path object
@@ -318,7 +316,6 @@ process parse_analysis_chr_pval {
 
 process make_min_p_table {
     publishDir "${launchDir}/Summary/"
-    machineType 'n2-standard-4'
 
     input:
         path min_p_files
@@ -350,7 +347,6 @@ process make_min_p_table {
 
 process call_plink_clump {
     publishDir "${launchDir}/Clump/Output/"
-    machineType 'n2-standard-4'
 
     input:
         tuple val(analysis), val(chr), path(sumstats), path(extract_file), val(plink_flag), path(plink_set)
@@ -382,7 +378,6 @@ process call_plink_clump {
 
 process merge_clump_results {
     publishDir "${launchDir}/Clump/Results/"
-    machineType 'n2-standard-4'
 
     input:
         tuple val(analysis), val(chr_list), path(clump_file_list), path(extract_file_list)
@@ -406,7 +401,6 @@ process merge_clump_results {
 
 process make_lead_snp_biofilter_input {
     publishDir "${launchDir}/Annotations/"
-    machineType 'n2-standard-4'
 
     input:
         path(merged_clumps)
@@ -442,7 +436,6 @@ process make_lead_snp_biofilter_input {
 
 process compile_results_with_annot {
     publishDir "${launchDir}/Summary/", mode: 'copy', overwrite: true
-    machineType 'n2-standard-4'
 
     input:
         path(merged_clumps)
@@ -505,7 +498,6 @@ process compile_results_with_annot {
 
 process compile_results_no_annot {
     publishDir "${launchDir}/Summary/", mode: 'copy', overwrite: true
-    machineType 'n2-standard-4'
 
     input:
         path(merged_clumps)
@@ -556,7 +548,6 @@ process compile_results_no_annot {
 }
 
 process compute_ld_for_clump_snps {
-    machineType 'n2-standard-4'
     
     input:
         tuple val(analysis), val(chr), path(clumps), path(extract_file), val(plink_flag), path(plink_set)
@@ -584,7 +575,6 @@ process compute_ld_for_clump_snps {
 
 process make_locus_plots_with_annot {
     publishDir "${launchDir}/Plots/", mode: 'copy', overwrite: true
-    machineType 'n2-standard-4'
 
     input:
         tuple val(analysis), path(loci_file), path(sumstats_files)
@@ -608,7 +598,6 @@ process make_locus_plots_with_annot {
 
 process make_locus_plots_no_annot {
     publishDir "${launchDir}/Plots/", mode: 'copy', overwrite: true
-    machineType 'n2-standard-4'
 
     input:
         tuple val(analysis), path(loci_file), path(sumstats_files)
@@ -630,7 +619,6 @@ process make_locus_plots_no_annot {
 
 process make_clump_plots_with_annot {
     publishDir "${launchDir}/Plots/", mode: 'copy', overwrite: true
-    machineType 'n2-standard-4'
 
     input:
         tuple val(analysis), path(clump_file), path(sumstats_files)
@@ -654,7 +642,6 @@ process make_clump_plots_with_annot {
 
 process make_clump_plots_no_annot {
     publishDir "${launchDir}/Plots/", mode: 'copy', overwrite: true
-    machineType 'n2-standard-4'
 
     input:
         tuple val(analysis), path(clump_file), path(sumstats_files)
@@ -677,7 +664,6 @@ process make_clump_plots_no_annot {
 import groovy.json.JsonBuilder
 process dump_params_to_json {
     publishDir "${launchDir}/Summary", mode: 'copy'
-    machineType 'n2-standard-2'
 
     input:
         val params_dict
