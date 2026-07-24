@@ -2,6 +2,7 @@ import sys
 import pandas as pd
 import argparse as ap
 import numpy as np
+import gc
 
 def make_parser():
     parser = ap.ArgumentParser()
@@ -43,6 +44,7 @@ bp_window = args.bp_window if args.bp_window is not None else 1000*args.kb_windo
 output_sumstats = f'{analysis}.{chr}.txt.gz'
 output_extract = f'{analysis}.{chr}.extract.txt'
 output_min_p = f'{analysis}.{chr}.min_p.csv'
+output_id_map = f'{analysis}.{chr}.variant_map.csv.gz'
 
 # Read in the bim file
 if not is_pfile:
@@ -74,8 +76,11 @@ col_map = {
     args.p_col : 'P'
 }
 
+snp_id_map = {}
+
 # Read in the summary stats file in chunks because it's big
 ss_dfs = []
+forward_match, backward_match = None, None
 for df in pd.read_table(sumstats, sep='\s+', chunksize=1E6, dtype={args.chr_col: str, args.pos_col: str}):
     df = df.rename(columns=col_map)
     df['CHR'] = df['CHR'].astype(str).str.replace('chr', '')
@@ -102,16 +107,32 @@ for df in pd.read_table(sumstats, sep='\s+', chunksize=1E6, dtype={args.chr_col:
     if len(df) == 0:
         continue
 
+    df_lead_snps = df[df['P'] <= p1thresh].copy()
+    fm_lead = forward_match.intersection(df_lead_snps.index)
+    bm_lead = backward_match.intersection(df_lead_snps.index)
+    
+    snp_id_map |= dict(zip(df_lead_snps.loc[fm_lead, 'VAR_ID'], bim1.loc[fm_lead, 1]))
+    snp_id_map |= dict(zip(df_lead_snps.loc[bm_lead, 'VAR_ID'], bim2.loc[bm_lead, 1]))
+
     # Set the new variant ID according to the bim file
     df.loc[forward_match, 'SNP'] = bim1.loc[forward_match, 1]
     df.loc[backward_match, 'SNP'] = bim2.loc[backward_match, 1]
     ss_dfs.append(df)
+
+snp_id_map = pd.Series(snp_id_map, name='ID_REF_PANEL')
+snp_id_map = snp_id_map[~snp_id_map.index.duplicated()].drop_duplicates()
+snp_id_map.index.name = 'ID_SUMSTATS'
+print(snp_id_map)
+snp_id_map.to_csv(output_id_map)
 
 try:
     df = pd.concat(ss_dfs).reset_index()
 except ValueError:
     df = pd.DataFrame(columns=['CHR', 'BP', 'SNP', 'P'])
 
+del ss_dfs, forward_match, backward_match
+gc.collect()
+gc.collect()
 print(df)
 
 # If p2 thresh is 1, then we want to keep all available SNPs

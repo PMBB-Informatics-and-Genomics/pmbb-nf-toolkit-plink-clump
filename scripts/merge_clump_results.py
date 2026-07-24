@@ -10,6 +10,7 @@ def make_parser():
     parser.add_argument('--clumps', nargs='+', help='Output from the plink clump call')
     parser.add_argument('--extract-files', nargs='+', help='variant IDs used in the clumping procedure')
     parser.add_argument('--analysis', help='nickname of the clumping analysis')
+    parser.add_argument('--variant-ids', nargs='+', help='variant ID map between the input sumstats and reference panel')
 
     return parser
 
@@ -18,6 +19,7 @@ args = make_parser().parse_args()
 clump_files = args.clumps
 analysis = args.analysis
 extract_files = args.extract_files
+variant_map_files = args.variant_ids
 
 # Build the output file names
 output_clumps = f'{analysis}.clumps.csv'
@@ -40,6 +42,9 @@ else:
 all_clumps = all_clumps.set_index('ID')
 print(all_clumps)
 print(all_clumps.columns)
+
+variant_id_map = pd.concat([pd.read_csv(f, index_col='ID_REF_PANEL') for f in variant_map_files])['ID_SUMSTATS']
+all_clumps['Lead_SNP_Input_ID'] = variant_id_map.loc[all_clumps.index]
 
 # Read in list of variants used in clumping
 extract_labels = pd.concat([pd.read_table(f, header=None, index_col=3) for f in extract_files])
